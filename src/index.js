@@ -6,7 +6,6 @@ const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 
 const userRoutes = require('./routes/userRoutes');
-const alertRoutes = require('./routes/alertRoutes');
 
 const app = express();
 
@@ -24,7 +23,6 @@ app.use(limiter);
 
 // Routes
 app.use('/users', userRoutes);
-app.use('/alerts', alertRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

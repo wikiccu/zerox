@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const userController = require('../controllers/userController');
+const UserController = require('../controllers/userController');
+const auth = require('../middleware/auth');
 
-// Register a new user
-router.post('/register', userController.register);
+// Public routes
+router.post('/request-otp', UserController.requestOTP);
+router.post('/verify-otp', UserController.verifyOTP);
 
-// Verify user's secret phrase
-router.post('/verify', userController.verifySecretPhrase);
+// Protected routes
+router.get('/profile', auth, UserController.getProfile);
+router.put('/trusted-contacts', auth, UserController.updateTrustedContacts);
 
 module.exports = router; 

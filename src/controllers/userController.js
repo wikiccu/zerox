@@ -1,62 +1,108 @@
-const User = require('../models/User');
-const Encryption = require('../utils/encryption');
+const User = require('../models/user');
+const TokenService = require('../services/tokenService');
+const CacheService = require('../services/cacheService');
 
-exports.register = async (req, res) => {
-    try {
-        const { phone, name, emergencyContacts, location, secretPhrase } = req.body;
-
-        // Check if user already exists
-        const existingUser = await User.findOne({ phone });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-
-        // Create new user
-        const user = new User({
-            phone,
-            name,
-            emergencyContacts,
-            location,
-            secretPhrase
-        });
-
-        await user.save();
-
-        // Return decrypted data for confirmation
-        const decryptedUser = user.decryptData();
-        res.status(201).json({
-            message: 'User registered successfully',
-            user: {
-                id: user._id,
-                phone: decryptedUser.phone,
-                name: decryptedUser.name,
-                emergencyContacts: decryptedUser.emergencyContacts,
-                location: decryptedUser.location
+class UserController {
+    static async requestOTP(req, res) {
+        try {
+            const { phone } = req.body;
+            
+            if (!phone) {
+                return res.status(400).json({ error: 'Phone number is required' });
             }
-        });
-    } catch (error) {
-        console.error('Registration error:', error);
-        res.status(500).json({ message: 'Error registering user' });
-    }
-};
 
-exports.verifySecretPhrase = async (req, res) => {
-    try {
-        const { phone, secretPhrase } = req.body;
-        
-        const user = await User.findOne({ phone });
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            // Generate and store OTP
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            CacheService.setOTP(phone, otp);
+
+            // In production, send OTP via SMS service
+            console.log(`OTP for ${phone}: ${otp}`);
+
+            res.json({ message: 'OTP sent successfully' });
+        } catch (error) {
+            console.error('Error in requestOTP:', error);
+            res.status(500).json({ error: 'Internal server error' });
         }
-
-        const isValid = await user.verifySecretPhrase(secretPhrase);
-        if (!isValid) {
-            return res.status(401).json({ message: 'Invalid secret phrase' });
-        }
-
-        res.json({ message: 'Secret phrase verified successfully' });
-    } catch (error) {
-        console.error('Verification error:', error);
-        res.status(500).json({ message: 'Error verifying secret phrase' });
     }
-}; 
+
+    static async verifyOTP(req, res) {
+        try {
+            const { phone, otp } = req.body;
+
+            if (!phone || !otp) {
+                return res.status(400).json({ error: 'Phone and OTP are required' });
+            }
+
+            const storedOTP = CacheService.getOTP(phone);
+            if (!storedOTP || storedOTP !== otp) {
+                return res.status(400).json({ error: 'Invalid OTP' });
+            }
+
+            // Find or create user
+            let user = await User.findOne({ phone });
+            if (!user) {
+                user = await User.create({ phone });
+            }
+
+            // Generate token
+            const token = TokenService.generateToken(user._id, phone);
+
+            // Clear OTP from cache
+            CacheService.deleteOTP(phone);
+
+            res.json({
+                message: 'OTP verified successfully',
+                token,
+                user: {
+                    id: user._id,
+                    phone: user.phone
+                }
+            });
+        } catch (error) {
+            console.error('Error in verifyOTP:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+
+    static async getProfile(req, res) {
+        try {
+            const user = await User.findById(req.user.userId);
+            if (!user) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            res.json({
+                id: user._id,
+                phone: user.phone,
+                trustedContacts: user.trustedContacts
+            });
+        } catch (error) {
+            console.error('Error in getProfile:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+
+    static async updateTrustedContacts(req, res) {
+        try {
+            const { trustedContacts } = req.body;
+            const user = await User.findById(req.user.userId);
+
+            if (!user) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            user.trustedContacts = trustedContacts;
+            await user.save();
+
+            res.json({
+                message: 'Trusted contacts updated successfully',
+                trustedContacts: user.trustedContacts
+            });
+        } catch (error) {
+            console.error('Error in updateTrustedContacts:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+}
+
+module.exports = UserController; 
